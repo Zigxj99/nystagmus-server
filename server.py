@@ -16,11 +16,14 @@ MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/fac
 
 LEFT_IRIS = [474, 475, 476, 477]
 
-# Minimum eye movement amplitude to be considered nystagmus (in pixels)
-MIN_AMPLITUDE_PX = 3.0
+# Nystagmus is small, repetitive oscillations — 1 Hz and above
+MIN_HZ = 1.0
 
-# Minimum Hz to report — below this we say "no significant nystagmus detected"
-MIN_HZ = 0.5
+# Max amplitude in pixels — big jumps are normal saccades, not nystagmus
+MAX_AMPLITUDE_PX = 20.0
+
+# Minimum amplitude — eye must actually be moving
+MIN_AMPLITUDE_PX = 3.0
 
 def ensure_model():
     if not os.path.exists(MODEL_PATH):
@@ -63,7 +66,7 @@ def analyze_video(path):
     y_positions = []
     frame_idx = 0
 
-    # Skip the first second of video to let the eye settle
+    # Skip the first second to let the eye settle
     frames_to_skip = int(fps * 1.0)
 
     while cap.isOpened():
@@ -72,8 +75,6 @@ def analyze_video(path):
             break
 
         frame_idx += 1
-
-        # Skip first second
         if frame_idx <= frames_to_skip:
             continue
 
@@ -93,7 +94,7 @@ def analyze_video(path):
                 y_positions.append(y_positions[-1])
 
     cap.release()
-    print(f"Tracked {len(x_positions)} frames (after skipping first second)")
+    print(f"Tracked {len(x_positions)} frames after skipping first second")
 
     if len(x_positions) < 10:
         return None, "Not enough eye tracking data"
@@ -103,23 +104,30 @@ def analyze_video(path):
     x -= np.mean(x)
     y -= np.mean(y)
 
-    # Check amplitude — if eye barely moves, it's not nystagmus
     x_amplitude = np.max(x) - np.min(x)
     y_amplitude = np.max(y) - np.min(y)
     print(f"X amplitude: {x_amplitude:.2f}px, Y amplitude: {y_amplitude:.2f}px")
 
-    if x_amplitude < MIN_AMPLITUDE_PX and y_amplitude < MIN_AMPLITUDE_PX:
-        return None, "No significant nystagmus detected"
+    # Pick the axis with more movement
+    if x_amplitude >= y_amplitude:
+        signal = x
+        amplitude = x_amplitude
+    else:
+        signal = y
+        amplitude = y_amplitude
 
-    # Raised threshold from 0.5 to 1.5 standard deviations to reduce false positives
-    peaks,   _ = find_peaks(x, height=np.std(x) * 1.5, distance=fps * 0.1)
-    troughs, _ = find_peaks(-x, height=np.std(x) * 1.5, distance=fps * 0.1)
+    # Too still — eye not moving enough
+    if amplitude < MIN_AMPLITUDE_PX:
+        return None, "No significant eye movement detected"
+
+    # Too much movement — big saccades, not nystagmus
+    if amplitude > MAX_AMPLITUDE_PX:
+        return None, "Eye movement too large — likely normal eye movement, not nystagmus"
+
+    # Detect peaks and troughs with raised threshold
+    peaks,   _ = find_peaks(signal, height=np.std(signal) * 1.5, distance=fps * 0.1)
+    troughs, _ = find_peaks(-signal, height=np.std(signal) * 1.5, distance=fps * 0.1)
     all_extremes = np.sort(np.concatenate([peaks, troughs]))
-
-    if len(all_extremes) < 2:
-        peaks,   _ = find_peaks(y, height=np.std(y) * 1.5, distance=fps * 0.1)
-        troughs, _ = find_peaks(-y, height=np.std(y) * 1.5, distance=fps * 0.1)
-        all_extremes = np.sort(np.concatenate([peaks, troughs]))
 
     if len(all_extremes) < 2:
         return None, "No clear oscillation detected"
@@ -127,10 +135,9 @@ def analyze_video(path):
     intervals = np.diff(all_extremes) / fps
     hz = 1.0 / (np.mean(intervals) * 2)
     hz = round(hz, 2)
+    print(f"Raw Hz: {hz}")
 
-    print(f"Result: {hz} Hz")
-
-    # If Hz is below minimum threshold, not nystagmus
+    # Below 1 Hz is too slow to be nystagmus
     if hz < MIN_HZ:
         return None, "No significant nystagmus detected"
 
@@ -159,7 +166,7 @@ def analyze():
         pass
 
     if error:
-        print(f"Error: {error}")
+        print(f"Result: {error}")
         return jsonify({'error': error}), 500
 
     print(f"Result: {hz} Hz")
