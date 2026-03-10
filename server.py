@@ -118,11 +118,11 @@ def analyze_video(path):
 
     # Too still — eye not moving enough
     if amplitude < MIN_AMPLITUDE_PX:
-        return None, "No significant eye movement detected"
+        return None, "No significant nystagmus detected in this scan."
 
     # Too much movement — big saccades, not nystagmus
     if amplitude > MAX_AMPLITUDE_PX:
-        return None, "Eye movement too large — likely normal eye movement, not nystagmus"
+        return None, "No significant nystagmus detected in this scan."
 
     # Detect peaks and troughs with raised threshold
     peaks,   _ = find_peaks(signal, height=np.std(signal) * 1.5, distance=fps * 0.1)
@@ -130,7 +130,7 @@ def analyze_video(path):
     all_extremes = np.sort(np.concatenate([peaks, troughs]))
 
     if len(all_extremes) < 2:
-        return None, "No clear oscillation detected"
+        return None, "No clear oscillation detected in this scan."
 
     intervals = np.diff(all_extremes) / fps
     hz = 1.0 / (np.mean(intervals) * 2)
@@ -139,7 +139,7 @@ def analyze_video(path):
 
     # Below 1 Hz is too slow to be nystagmus
     if hz < MIN_HZ:
-        return None, "No significant nystagmus detected"
+        return None, "No significant nystagmus detected in this scan."
 
     return hz, None
 
