@@ -11,11 +11,16 @@ import urllib.request
 
 app = Flask(__name__)
 
-# Model downloads automatically on first run
 MODEL_PATH = "face_landmarker.task"
 MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 
 LEFT_IRIS = [474, 475, 476, 477]
+
+# Minimum eye movement amplitude to be considered nystagmus (in pixels)
+MIN_AMPLITUDE_PX = 3.0
+
+# Minimum Hz to report — below this we say "no significant nystagmus detected"
+MIN_HZ = 0.5
 
 def ensure_model():
     if not os.path.exists(MODEL_PATH):
@@ -39,6 +44,8 @@ def analyze_video(path):
         return None, "Could not open video"
 
     fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps <= 0:
+        fps = 30.0
     print(f"FPS: {fps}")
 
     ensure_model()
@@ -54,11 +61,22 @@ def analyze_video(path):
 
     x_positions = []
     y_positions = []
+    frame_idx = 0
+
+    # Skip the first second of video to let the eye settle
+    frames_to_skip = int(fps * 1.0)
 
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
+
+        frame_idx += 1
+
+        # Skip first second
+        if frame_idx <= frames_to_skip:
+            continue
+
         h, w = frame.shape[:2]
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
@@ -75,7 +93,7 @@ def analyze_video(path):
                 y_positions.append(y_positions[-1])
 
     cap.release()
-    print(f"Tracked {len(x_positions)} frames")
+    print(f"Tracked {len(x_positions)} frames (after skipping first second)")
 
     if len(x_positions) < 10:
         return None, "Not enough eye tracking data"
@@ -85,13 +103,22 @@ def analyze_video(path):
     x -= np.mean(x)
     y -= np.mean(y)
 
-    peaks, _   = find_peaks(x, height=np.std(x) * 0.5, distance=fps * 0.1)
-    troughs, _ = find_peaks(-x, height=np.std(x) * 0.5, distance=fps * 0.1)
+    # Check amplitude — if eye barely moves, it's not nystagmus
+    x_amplitude = np.max(x) - np.min(x)
+    y_amplitude = np.max(y) - np.min(y)
+    print(f"X amplitude: {x_amplitude:.2f}px, Y amplitude: {y_amplitude:.2f}px")
+
+    if x_amplitude < MIN_AMPLITUDE_PX and y_amplitude < MIN_AMPLITUDE_PX:
+        return None, "No significant nystagmus detected"
+
+    # Raised threshold from 0.5 to 1.5 standard deviations to reduce false positives
+    peaks,   _ = find_peaks(x, height=np.std(x) * 1.5, distance=fps * 0.1)
+    troughs, _ = find_peaks(-x, height=np.std(x) * 1.5, distance=fps * 0.1)
     all_extremes = np.sort(np.concatenate([peaks, troughs]))
 
     if len(all_extremes) < 2:
-        peaks, _   = find_peaks(y, height=np.std(y) * 0.5, distance=fps * 0.1)
-        troughs, _ = find_peaks(-y, height=np.std(y) * 0.5, distance=fps * 0.1)
+        peaks,   _ = find_peaks(y, height=np.std(y) * 1.5, distance=fps * 0.1)
+        troughs, _ = find_peaks(-y, height=np.std(y) * 1.5, distance=fps * 0.1)
         all_extremes = np.sort(np.concatenate([peaks, troughs]))
 
     if len(all_extremes) < 2:
@@ -99,7 +126,15 @@ def analyze_video(path):
 
     intervals = np.diff(all_extremes) / fps
     hz = 1.0 / (np.mean(intervals) * 2)
-    return round(hz, 2), None
+    hz = round(hz, 2)
+
+    print(f"Result: {hz} Hz")
+
+    # If Hz is below minimum threshold, not nystagmus
+    if hz < MIN_HZ:
+        return None, "No significant nystagmus detected"
+
+    return hz, None
 
 @app.route('/', methods=['GET'])
 def home():
