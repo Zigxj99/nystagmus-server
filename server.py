@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 import cv2
 import numpy as np
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, savgol_filter
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
@@ -16,13 +16,8 @@ MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/fac
 
 LEFT_IRIS = [474, 475, 476, 477]
 
-# Nystagmus is small, repetitive oscillations — 1 Hz and above
 MIN_HZ = 0.3
-
-# Max amplitude in pixels — big jumps are normal saccades, not nystagmus
 MAX_AMPLITUDE_PX = 80.0
-
-# Minimum amplitude — eye must actually be moving
 MIN_AMPLITUDE_PX = 3.0
 
 def ensure_model():
@@ -65,8 +60,6 @@ def analyze_video(path):
     x_positions = []
     y_positions = []
     frame_idx = 0
-
-    # Skip the first second to let the eye settle
     frames_to_skip = int(fps * 1.0)
 
     while cap.isOpened():
@@ -109,24 +102,32 @@ def analyze_video(path):
     print(f"X amplitude: {x_amplitude:.2f}px, Y amplitude: {y_amplitude:.2f}px")
 
     # Pick the axis with more movement
-    if x_amplitude >= y_amplitude:
-        signal = x
-        amplitude = x_amplitude
-    else:
-        signal = y
-        amplitude = y_amplitude
+    signal = x if x_amplitude >= y_amplitude else y
+    amplitude = max(x_amplitude, y_amplitude)
 
-    # Too still — eye not moving enough
     if amplitude < MIN_AMPLITUDE_PX:
         return None, "No significant nystagmus detected in this scan."
-
-    # Too much movement — big saccades, not nystagmus
     if amplitude > MAX_AMPLITUDE_PX:
         return None, "No significant nystagmus detected in this scan."
 
-    # Detect peaks and troughs with raised threshold
-    peaks,   _ = find_peaks(signal, height=np.std(signal) * 0.8, distance=fps * 0.1)
-    troughs, _ = find_peaks(-signal, height=np.std(signal) * 0.8, distance=fps * 0.1)
+    # Smooth the signal to reduce noise before peak detection
+    window = max(5, int(fps * 0.15) | 1)  # must be odd
+    if window % 2 == 0:
+        window += 1
+    try:
+        signal_smooth = savgol_filter(signal, window_length=window, polyorder=2)
+    except Exception:
+        signal_smooth = signal
+
+    # Low threshold to catch small nystagmus oscillations
+    threshold = np.std(signal_smooth) * 0.3
+    min_distance = max(2, int(fps * 0.05))
+
+    peaks,   _ = find_peaks(signal_smooth,  height=threshold, distance=min_distance)
+    troughs, _ = find_peaks(-signal_smooth, height=threshold, distance=min_distance)
+
+    print(f"Peaks found: {len(peaks)}, Troughs found: {len(troughs)}")
+
     all_extremes = np.sort(np.concatenate([peaks, troughs]))
 
     if len(all_extremes) < 2:
@@ -137,7 +138,6 @@ def analyze_video(path):
     hz = round(hz, 2)
     print(f"Raw Hz: {hz}")
 
-    # Below 1 Hz is too slow to be nystagmus
     if hz < MIN_HZ:
         return None, "No significant nystagmus detected in this scan."
 
@@ -176,5 +176,3 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"Server starting on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
-
-
