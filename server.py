@@ -17,7 +17,7 @@ MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/fac
 LEFT_IRIS = [474, 475, 476, 477]
 
 # Nystagmus is small, repetitive oscillations — 1 Hz and above
-MIN_HZ = 1.0
+MIN_HZ = 0.3
 
 # Max amplitude in pixels — big jumps are normal saccades, not nystagmus
 MAX_AMPLITUDE_PX = 20.0
@@ -125,8 +125,8 @@ def analyze_video(path):
         return None, "No significant nystagmus detected in this scan."
 
     # Detect peaks and troughs with raised threshold
-    peaks,   _ = find_peaks(signal, height=np.std(signal) * 1.5, distance=fps * 0.1)
-    troughs, _ = find_peaks(-signal, height=np.std(signal) * 1.5, distance=fps * 0.1)
+    peaks,   _ = find_peaks(signal, height=np.std(signal) * 0.8, distance=fps * 0.1)
+    troughs, _ = find_peaks(-signal, height=np.std(signal) * 0.8, distance=fps * 0.1)
     all_extremes = np.sort(np.concatenate([peaks, troughs]))
 
     if len(all_extremes) < 2:
@@ -176,3 +176,4 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"Server starting on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
+
