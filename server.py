@@ -102,8 +102,14 @@ def analyze_video(path):
     print(f"X amplitude: {x_amplitude:.2f}px, Y amplitude: {y_amplitude:.2f}px")
 
     # Pick the axis with more movement
-    signal = x if x_amplitude >= y_amplitude else y
-    amplitude = max(x_amplitude, y_amplitude)
+    if x_amplitude >= y_amplitude:
+        signal = x
+        amplitude = x_amplitude
+        direction = "x"
+    else:
+        signal = y
+        amplitude = y_amplitude
+        direction = "y"
 
     if amplitude < MIN_AMPLITUDE_PX:
         return None, "No significant nystagmus detected in this scan.", None
@@ -176,3 +182,4 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"Server starting on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
+
