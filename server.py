@@ -141,7 +141,7 @@ def analyze_video(path):
     if hz < MIN_HZ:
         return None, "No significant nystagmus detected in this scan.", None
 
-    return hz, None, direction
+    return hz, None, "x"
 
 @app.route('/', methods=['GET'])
 def home():
@@ -176,3 +176,4 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"Server starting on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
+
