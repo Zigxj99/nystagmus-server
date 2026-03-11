@@ -39,7 +39,7 @@ def analyze_video(path):
 
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
-        return None, "Could not open video"
+        return None, "Could not open video", None
 
     fps = cap.get(cv2.CAP_PROP_FPS)
     if fps <= 0:
@@ -90,7 +90,7 @@ def analyze_video(path):
     print(f"Tracked {len(x_positions)} frames after skipping first second")
 
     if len(x_positions) < 10:
-        return None, "Not enough eye tracking data"
+        return None, "Not enough eye tracking data", None
 
     x = np.array(x_positions)
     y = np.array(y_positions)
@@ -106,9 +106,9 @@ def analyze_video(path):
     amplitude = max(x_amplitude, y_amplitude)
 
     if amplitude < MIN_AMPLITUDE_PX:
-        return None, "No significant nystagmus detected in this scan."
+        return None, "No significant nystagmus detected in this scan.", None
     if amplitude > MAX_AMPLITUDE_PX:
-        return None, "No significant nystagmus detected in this scan."
+        return None, "No significant nystagmus detected in this scan.", None
 
     # Smooth the signal to reduce noise before peak detection
     window = max(5, int(fps * 0.15) | 1)  # must be odd
@@ -131,7 +131,7 @@ def analyze_video(path):
     all_extremes = np.sort(np.concatenate([peaks, troughs]))
 
     if len(all_extremes) < 2:
-        return None, "No clear oscillation detected in this scan."
+        return None, "No clear oscillation detected in this scan.", None
 
     intervals = np.diff(all_extremes) / fps
     hz = 1.0 / (np.mean(intervals) * 2)
@@ -139,9 +139,9 @@ def analyze_video(path):
     print(f"Raw Hz: {hz}")
 
     if hz < MIN_HZ:
-        return None, "No significant nystagmus detected in this scan."
+        return None, "No significant nystagmus detected in this scan.", None
 
-    return hz, None
+    return hz, None, direction
 
 @app.route('/', methods=['GET'])
 def home():
@@ -158,7 +158,7 @@ def analyze():
     video_file.save(tmp_path)
     print(f"Video saved to: {tmp_path}")
 
-    hz, error = analyze_video(tmp_path)
+    hz, error, direction = analyze_video(tmp_path)
 
     try:
         os.unlink(tmp_path)
@@ -170,7 +170,7 @@ def analyze():
         return jsonify({'error': error}), 500
 
     print(f"Result: {hz} Hz")
-    return jsonify({'hz': hz})
+    return jsonify({'hz': hz, 'direction': direction})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
