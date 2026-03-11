@@ -20,7 +20,7 @@ LEFT_IRIS = [474, 475, 476, 477]
 MIN_HZ = 0.3
 
 # Max amplitude in pixels — big jumps are normal saccades, not nystagmus
-MAX_AMPLITUDE_PX = 20.0
+MAX_AMPLITUDE_PX = 80.0
 
 # Minimum amplitude — eye must actually be moving
 MIN_AMPLITUDE_PX = 3.0
@@ -176,4 +176,5 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"Server starting on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
