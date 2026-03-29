@@ -19,6 +19,7 @@ LEFT_IRIS = [474, 475, 476, 477]
 MIN_HZ = 0.3
 MAX_AMPLITUDE_PX = 80.0
 MIN_AMPLITUDE_PX = 3.0
+MAX_CONSISTENCY = 0.6
 
 def ensure_model():
     if not os.path.exists(MODEL_PATH):
@@ -102,8 +103,8 @@ def analyze_video(path):
     print(f"X amplitude: {x_amplitude:.2f}px, Y amplitude: {y_amplitude:.2f}px")
 
     # Pick the axis with more movement
-    signal = x if x_amplitude >= y_amplitude else y
-    amplitude = max(x_amplitude, y_amplitude)
+signal = x
+amplitude = x_amplitude
 
     if amplitude < MIN_AMPLITUDE_PX:
         return None, "No significant nystagmus detected in this scan.", None
@@ -137,6 +138,15 @@ def analyze_video(path):
     hz = 1.0 / (np.mean(intervals) * 2)
     hz = round(hz, 2)
     print(f"Raw Hz: {hz}")
+
+    # Consistency check — nystagmus is rhythmic, normal movement is random
+    interval_std = np.std(intervals)
+    interval_mean = np.mean(intervals)
+    consistency = interval_std / interval_mean if interval_mean > 0 else 1.0
+    print(f"Consistency score: {consistency:.2f}")
+
+    if consistency > MAX_CONSISTENCY:
+        return None, "No significant nystagmus detected in this scan.", None
 
     if hz < MIN_HZ:
         return None, "No significant nystagmus detected in this scan.", None
@@ -176,4 +186,3 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"Server starting on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
-
